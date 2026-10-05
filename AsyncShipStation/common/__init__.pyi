@@ -47,6 +47,7 @@ from ._types import (
 from .base import (
     LOGGER,
     APIError,
+    ConnectionConfig,
     ShipStationClient,
     ShipStationConnection,
     read_json,
@@ -94,6 +95,7 @@ __all__ = (
     "PaperlessDownload",
     "LOGGER",
     "APIError",
+    "ConnectionConfig",
     "ShipStationClient",
     "ShipStationConnection",
     "read_json",

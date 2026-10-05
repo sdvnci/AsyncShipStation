@@ -20,6 +20,7 @@ from .common import LOGGER as LOGGER
 from .common import URL as URL
 from .common import Address as Address
 from .common import APIError as APIError
+from .common import ConnectionConfig as ConnectionConfig
 from .common import Contact as Contact
 from .common import DeliveryConfirmationMethod as DeliveryConfirmationMethod
 from .common import DeliveryConfirmationMethods as DeliveryConfirmationMethods
@@ -289,6 +290,7 @@ __all__ = (
     "PaperlessDownload",
     "LOGGER",
     "APIError",
+    "ConnectionConfig",
     "ShipStationClient",
     "read_json",
     "write_json",

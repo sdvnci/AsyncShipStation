@@ -7,6 +7,7 @@ build
 twine
 pytest
 pytest-asyncio
+respx
 reportlab
 pypdf
 types-reportlab

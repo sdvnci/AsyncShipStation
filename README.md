@@ -43,7 +43,7 @@ async def main() -> None:
     )
 
     async with ShipStationClient.scoped_client(connection=connection, version="v2"):
-        status, shipments = await ShipmentPortal.list(
+        status, shipments = await ShipmentPortal.where(
             connection,
             page_size=10,
             page=1,
@@ -58,6 +58,8 @@ if __name__ == "__main__":
 The library comes pre-configured with 'sensible' default values for connections, but you can configure these parameters by passing a `ConnectionConfig` object with the parameters you would like changed.
 
 ~~~python
+from AsyncShipStation import ConnectionConfig, ShipStationClient
+
 config  = ConnectionConfig(
     version="v2",
     timeout=30,
@@ -105,7 +107,7 @@ async def main() -> None:
     )
 
     async with ShipStationClient.scoped_client(connection=connection, version="v2"):
-        status, shipments = await ShipmentPortal.list(connection, page_size=10, page=1)
+        status, shipments = await ShipmentPortal.where(connection, page_size=10, page=1)
         print(status, shipments)
 
 
@@ -131,16 +133,13 @@ V1_SECRET: str | None = os.getenv("SHIP_STATION_SECRET")
 
 
 async def main() -> None:
-    connection = await ShipStationClient.connect(
-        
-    )
-
     async with ShipStationClient.scoped_client(
         v2_key=V2_API_KEY or "",
         v1_key=V1_API_KEY,
-        v1_secret=V1_SECRET, version="v2"
-    ):
-        status, shipments = await ShipmentPortal.list(connection, page_size=10, page=1)
+        v1_secret=V1_SECRET,
+        version="v2",
+    ) as connection:
+        status, shipments = await ShipmentPortal.where(connection, page_size=10, page=1)
         print(status, shipments)
 
 
@@ -175,7 +174,7 @@ async def main() -> None:
 
     await ShipStationClient.start(connection=connection, version="v2")
     try:
-        status, shipments = await ShipmentPortal.list(connection, page_size=10, page=1)
+        status, shipments = await ShipmentPortal.where(connection, page_size=10, page=1)
         print(status, shipments)
     finally:
         await ShipStationClient.close(connection=connection, version="v2")
@@ -209,9 +208,9 @@ async def main() -> None:
 
     async with ShipStationClient.scoped_client(connection=connection, version="v2"):
         results = await asyncio.gather(
-            ShipmentPortal.list(connection, page_size=10, page=1),
-            BatchPortal.list(connection, page_size=10, page=1),
-            LabelPortal.list(connection, page_size=10, page=1),
+            ShipmentPortal.where(connection, page_size=10, page=1),
+            BatchPortal.where(connection, page_size=10, page=1),
+            LabelPortal.where(connection, page_size=10, page=1),
         )
 
     for status, data in results:
@@ -243,10 +242,10 @@ async def main() -> None:
     )
 
     async with ShipStationClient.scoped_client(
-        connection_hash=connection.pool_key,
+        uid=connection.uid,
         version="v2",
     ) as scoped_connection:
-        status, shipments = await ShipmentPortal.list(
+        status, shipments = await ShipmentPortal.where(
             scoped_connection,
             page_size=10,
             page=1,
@@ -258,9 +257,20 @@ if __name__ == "__main__":
     asyncio.run(main())
 ~~~
 
+## Errors
+
+Portal methods do not raise. They return `(status, body)`, and on failure `body` is an `ErrorResponse` with the response's real status:
+
+- ShipStation v2 error bodies (`{"errors": [...]}`) are passed through unchanged.
+- Any other error body, such as a v1 `{"Message": ...}` body, a non-JSON body or an empty one, is wrapped in an `ErrorResponse` that keeps its status (401, 404, 429, 502, ...).
+- Calling a version the connection has no credentials for fails locally with status 400.
+- Transport failures (timeouts, refused connections) and undecodable success bodies come back as 500.
+
+Logging is off by default. `ShipStationClient.debug_on()` enables it for every portal, and `debug_off()` disables it again.
+
 ## Rate Limiting
 
-Accounts that send too many requests in quick succession will receive a `429 Too Many Requests` response with a `Retry-After` header that tells you how long to wait.
+Accounts that send too many requests in quick succession will receive a `429 Too Many Requests` response with a `Retry-After` header that tells you how long to wait. The client does not retry 429s; they come back as `(429, ErrorResponse)`. `ConnectionConfig.retries` only retries failed connection attempts.
 
 ShipStation bulk operation endpoints count as a single request.
 
