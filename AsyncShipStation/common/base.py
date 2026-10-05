@@ -15,7 +15,7 @@ from pydantic import EmailStr, HttpUrl, SecretStr
 from ._types import ErrorResponse
 
 LOGGER: Logger = getLogger("AsyncShipStation")
-VERSION: Final[str] = "0.2.1.9"
+VERSION: Final[str] = "0.2.2.0"
 T = TypeVar("T")
 
 HTTPMethods = Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
@@ -64,6 +64,28 @@ class APIError(Exception):
     @property
     def content(self) -> bytes:
         return self.__str__().encode("utf-8")
+
+
+class RateLimitError(APIError):
+    """
+    Raised by ``validate_response`` when ShipStation answers HTTP 429 Too Many Requests.
+
+    ``retry_after`` is how many seconds to wait, taken from the ``Retry-After`` header
+    or, when that is missing, v1's ``X-Rate-Limit-Reset``. It is None when neither is
+    present. ``OrderPortal`` re-raises it; other portals return it as a
+    ``(429, ErrorResponse)`` tuple.
+    """
+
+    __slots__ = ("retry_after",)
+
+    def __init__(
+        self,
+        status: int,
+        detail: str | dict[str, object],
+        retry_after: float | None,
+    ) -> None:
+        super().__init__(status, detail)
+        self.retry_after = retry_after
 
 
 class Loggable:
@@ -127,11 +149,11 @@ class ConnectionConfig:
     credentials with a different config are pooled as a separate connection.
 
     ``retries`` is the number of connect-level retries on the httpx transport. HTTP 429
-    is never retried; it comes back as an ``ErrorResponse`` with status 429.
+    is never retried; it surfaces as a ``RateLimitError`` (see ``validate_response``).
     """
 
     version: Literal["v1", "v2", "both"] = "v2"
-    timeout: int = 500
+    timeout: int = 60
     max_connections: int = 20
     max_keepalive_connections: int = 10
     http2: bool = False
@@ -495,13 +517,21 @@ class ShipStationClient(Loggable):
         identity: bool = False,
     ) -> tuple[int, ErrorResponse | T]:
         """
-        Decodes a response into ``(status, payload)``. Never raises: ShipStation error
-        bodies (``{"errors": [...]}``) are passed through with their real status, and
-        anything else that is not a successful JSON (or empty) body, such as a v1 error
-        body, is wrapped in an ``ErrorResponse`` that keeps the response's status.
+        Decodes a response into ``(status, payload)``. ShipStation error bodies
+        (``{"errors": [...]}``) are passed through with their real status, and anything
+        else that is not a successful JSON (or empty) body, such as a v1 error body, is
+        wrapped in an ``ErrorResponse`` that keeps the response's status.
+
+        The one exception raised is ``RateLimitError`` on HTTP 429, so a caller can back
+        off for its ``retry_after``. Portals that catch it still return status 429.
         """
         if isinstance(res, APIError):
             return res.status_code, res.json()
+
+        if res.status_code == 429:
+            raise RateLimitError(
+                429, res.text[:500] or res.reason_phrase, cls._retry_after(res)
+            )
 
         payload: object = None
         if res.content:
@@ -534,6 +564,22 @@ class ShipStationClient(Loggable):
             payload = cls._apply_identity_tag(payload, return_type)
 
         return res.status_code, cast(T, payload)
+
+    @staticmethod
+    def _retry_after(res: Response) -> float | None:
+        """
+        Seconds to wait before retrying, from ``Retry-After`` (v2) or
+        ``X-Rate-Limit-Reset`` (v1). None when neither header holds a number.
+        """
+        for header in ("Retry-After", "X-Rate-Limit-Reset"):
+            raw = res.headers.get(header)
+            if raw is None:
+                continue
+            try:
+                return float(raw)
+            except ValueError:
+                continue
+        return None
 
     @staticmethod
     def parse_unknown_exception(
@@ -832,6 +878,7 @@ __all__ = (
     "VERSION",
     "HTTPMethods",
     "APIError",
+    "RateLimitError",
     "Loggable",
     "ConnectionConfig",
     "ShipStationConnection",

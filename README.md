@@ -259,18 +259,33 @@ if __name__ == "__main__":
 
 ## Errors
 
-Portal methods do not raise. They return `(status, body)`, and on failure `body` is an `ErrorResponse` with the response's real status:
+Portal methods return `(status, body)`. On failure `body` is an `ErrorResponse` with the response's real status:
 
 - ShipStation v2 error bodies (`{"errors": [...]}`) are passed through unchanged.
-- Any other error body, such as a v1 `{"Message": ...}` body, a non-JSON body or an empty one, is wrapped in an `ErrorResponse` that keeps its status (401, 404, 429, 502, ...).
+- Any other error body, such as a v1 `{"Message": ...}` body, a non-JSON body or an empty one, is wrapped in an `ErrorResponse` that keeps its status (401, 404, 502, ...).
 - Calling a version the connection has no credentials for fails locally with status 400.
 - Transport failures (timeouts, refused connections) and undecodable success bodies come back as 500.
+
+The one exception is rate limiting: `OrderPortal` raises `RateLimitError` on HTTP 429 (see below).
 
 Logging is off by default. `ShipStationClient.debug_on()` enables it for every portal, and `debug_off()` disables it again.
 
 ## Rate Limiting
 
-Accounts that send too many requests in quick succession will receive a `429 Too Many Requests` response with a `Retry-After` header that tells you how long to wait. The client does not retry 429s; they come back as `(429, ErrorResponse)`. `ConnectionConfig.retries` only retries failed connection attempts.
+Accounts that send too many requests in quick succession will receive a `429 Too Many Requests` response. The v1 API allows 40 requests per minute per key and secret, and its 429s carry an `X-Rate-Limit-Reset` header (seconds until the window resets); v2 sends `Retry-After`.
+
+The client does not retry 429s. `OrderPortal` raises `RateLimitError`, whose `retry_after` holds the wait in seconds (or `None` if neither header was readable), so you can back off:
+
+~~~python
+from AsyncShipStation import OrderPortal, RateLimitError
+
+try:
+    status, orders = await OrderPortal.where(connection, orderStatus="awaiting_shipment")
+except RateLimitError as exc:
+    await asyncio.sleep(exc.retry_after or 60)
+~~~
+
+Every other portal returns `(429, ErrorResponse)`. `ConnectionConfig.retries` only retries failed connection attempts, and `ConnectionConfig.timeout` defaults to 60 seconds.
 
 ShipStation bulk operation endpoints count as a single request.
 

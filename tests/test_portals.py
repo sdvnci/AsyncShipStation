@@ -10,6 +10,7 @@ from AsyncShipStation import (
     DownloadPortal,
     ErrorResponse,
     OrderPortal,
+    RateLimitError,
     ShipmentPortal,
     TagsPortal,
 )
@@ -78,7 +79,55 @@ async def test_v1_error_bodies_keep_their_status(v1: ShipStationConnection) -> N
 
 
 async def test_empty_error_bodies_keep_their_status(v2: ShipStationConnection) -> None:
-    respx.get(f"{V2_BASE}/tags").respond(429)
+    respx.get(f"{V2_BASE}/tags").respond(404)
+    status, response = await TagsPortal.all(v2)
+
+    assert status == 404
+    assert error_of(response)["message"] == "Not Found"
+
+
+async def test_order_portal_raises_v1_rate_limits_with_the_reset_window(
+    v1: ShipStationConnection,
+) -> None:
+    respx.get(f"{V1_BASE}/orders").respond(
+        429, text="Too Many Requests", headers={"X-Rate-Limit-Reset": "37"}
+    )
+    with pytest.raises(RateLimitError) as caught:
+        await OrderPortal.where(v1)
+
+    assert caught.value.status_code == 429
+    assert caught.value.retry_after == 37.0
+    assert caught.value.details == "Too Many Requests"
+
+
+async def test_retry_after_takes_precedence_over_the_v1_reset_header(
+    v1: ShipStationConnection,
+) -> None:
+    respx.get(f"{V1_BASE}/orders").respond(
+        429, headers={"Retry-After": "5", "X-Rate-Limit-Reset": "37"}
+    )
+    with pytest.raises(RateLimitError) as caught:
+        await OrderPortal.where(v1)
+
+    assert caught.value.retry_after == 5.0
+
+
+async def test_unreadable_rate_limit_headers_leave_retry_after_unset(
+    v1: ShipStationConnection,
+) -> None:
+    respx.get(f"{V1_BASE}/orders").respond(
+        429, headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}
+    )
+    with pytest.raises(RateLimitError) as caught:
+        await OrderPortal.where(v1)
+
+    assert caught.value.retry_after is None
+
+
+async def test_other_portals_return_rate_limits_as_a_429(
+    v2: ShipStationConnection,
+) -> None:
+    respx.get(f"{V2_BASE}/tags").respond(429, headers={"Retry-After": "12"})
     status, response = await TagsPortal.all(v2)
 
     assert status == 429

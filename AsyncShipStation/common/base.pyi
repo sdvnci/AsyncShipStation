@@ -29,6 +29,17 @@ class APIError(Exception):
     @property
     def content(self) -> bytes: ...
 
+class RateLimitError(APIError):
+    __slots__ = ("retry_after",)
+    retry_after: float | None
+
+    def __init__(
+        self,
+        status: int,
+        detail: str | dict[str, object],
+        retry_after: float | None,
+    ) -> None: ...
+
 class Loggable:
     __slots__ = ()
     _debug: ClassVar[bool]
@@ -53,7 +64,7 @@ class Loggable:
 @dataclass(slots=True, frozen=True)
 class ConnectionConfig:
     version: Literal["v1", "v2", "both"] = "v2"
-    timeout: int = 500
+    timeout: int = 60
     max_connections: int = 20
     max_keepalive_connections: int = 10
     http2: bool = False
@@ -186,6 +197,8 @@ class ShipStationClient(Loggable):
         identity: bool = False,
     ) -> tuple[int, ErrorResponse | T]: ...
     @staticmethod
+    def _retry_after(res: Response) -> float | None: ...
+    @staticmethod
     def parse_unknown_exception(
         exception: Exception,
     ) -> tuple[int, ErrorResponse]: ...
@@ -269,6 +282,7 @@ __all__ = (
     "VERSION",
     "HTTPMethods",
     "APIError",
+    "RateLimitError",
     "Loggable",
     "ConnectionConfig",
     "ShipStationConnection",
