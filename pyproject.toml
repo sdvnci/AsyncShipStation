@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "AsyncShipStation"
-version = "0.2.1.8"
+version = "0.2.2.0"
 description = "Async Python wrapper for the ShipStation API"
 readme = "README.md"
 license = "MIT"

@@ -5,6 +5,7 @@ from ..common import (
     DeliveryConfirmationMethods,
     Endpoints,
     ErrorResponse,
+    RateLimitError,
     ShipStationClient,
     ShipStationConnection,
     V1Address,
@@ -92,6 +93,8 @@ class OrderPortal(ShipStationClient):
                 V1OrderListResponse,
                 identity=identity,
             )
+        except RateLimitError:
+            raise
         except Exception as e:
             return cls.parse_unknown_exception(e)
 
@@ -142,6 +145,8 @@ class OrderPortal(ShipStationClient):
                 V1OrderLabel,
                 identity=identity,
             )
+        except RateLimitError:
+            raise
         except Exception as e:
             return cls.parse_unknown_exception(e)
 
@@ -258,6 +263,8 @@ class OrderPortal(ShipStationClient):
                 V1Order,
                 identity=identity,
             )
+        except RateLimitError:
+            raise
         except Exception as e:
             return cls.parse_unknown_exception(e)
 
@@ -386,5 +393,7 @@ class OrderPortal(ShipStationClient):
                 V1BatchOrderCreationResponse,
                 identity=identity,
             )
+        except RateLimitError:
+            raise
         except Exception as e:
             return cls.parse_unknown_exception(e)

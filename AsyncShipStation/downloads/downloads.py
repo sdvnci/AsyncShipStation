@@ -108,10 +108,8 @@ class DownloadPortal(ShipStationClient):
                 headers={"content-type": "application/pdf"},
             )
             if res.status_code != 200:
-                json = res.json()
-                if "errors" in json:
-                    return (res.status_code, cast(ErrorResponse, json))
-                raise Exception(f"Unexpected response: {json}")
+                status, error = cls.validate_response(res, (200,), bytes)
+                return (status, cast(ErrorResponse, error))
 
         except Exception as e:
             return cls.parse_unknown_exception(e)
